@@ -1,10 +1,13 @@
 import json
+import threading
 import time
 
 import requests
 from tqdm import tqdm
 
 OUTPUT_DIR = "data"
+THREADS_COUNT = 1000
+BASE_URL = "https://saverudata.org/dbgeo/"
 
 
 def fetch_json(url):
@@ -16,39 +19,35 @@ def fetch_json(url):
         except Exception:
             i += 1
             time.sleep(1)
-    return ""
+    return f"Error to fetch {url}"
 
 
-with open("geohash.json") as geohash:
-    data = json.load(geohash)
-    for hash_string in tqdm(data):
-        response = fetch_json(
-            f"https://saverudata.org/dbgeo/{hash_string[0:1]}/{hash_string[1:2]}/{hash_string[2:3]}/{hash_string}.json"
-        )
-        with open(
-            f"{OUTPUT_DIR}/{hash_string}.json", "w+", encoding="utf-8"
-        ) as output_json:
-            output_json.write(json.dumps(response, ensure_ascii=False))
-
-import threading
-import time
+def get_json_data(file):
+    with open(file) as geohash:
+        data = json.load(geohash)
+        chunk = len(data) // THREADS_COUNT
+        return list(zip(*[iter(data)] * chunk))
 
 
-def mythread():
-    print("1")
+def handle_chunk(*args):
+    for g_str in tqdm(args):
+        url = f"{BASE_URL}{g_str[0:1]}/{g_str[1:2]}/{g_str[2:3]}/{g_str}.json"
+        response = fetch_json(url)
+        with open(f"{OUTPUT_DIR}/{g_str}.json", "w+", encoding="utf-8") as out:
+            out.write(json.dumps(response, ensure_ascii=False))
 
 
 def main():
-    threads = 0  # thread counter
-    y = 1000  # a MILLION of 'em!
-    for i in range(y):
+    data = get_json_data("geohash.json")
+
+    for thread_chunk in data:
         try:
-            x = threading.Thread(target=mythread, daemon=True)
-            threads += 1  # thread counter
-            x.start()  # start each thread
-        except RuntimeError:  # too many throws a RuntimeError
-            break
-    print("{} threads created.\n".format(threads))
+            thread = threading.Thread(
+                target=handle_chunk, args=thread_chunk, daemon=True
+            )
+            thread.start()
+        except RuntimeError:
+            continue
 
 
 if __name__ == "__main__":
